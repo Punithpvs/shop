@@ -141,12 +141,22 @@
       .navbar .logo-text { font-size: 18px; }
       .welcome-header { padding: 18px 20px; flex-direction: column; align-items: stretch; }
       .earnings-section { justify-content: space-between; }
-      .product-grid { gap: 16px; }
+      .product-grid { gap: 16px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
       .toast-msg { white-space: normal; text-align: center; width: 90%; font-size: 13px; }
       .slide-menu { width: 280px; left: -290px; }
       .menu-item { font-size: 14px; padding: 12px 16px; }
       .modal-card { padding: 24px 18px; }
       .tree-node { min-width: 120px; padding: 10px 14px; font-size: 13px; }
+      .guest-header { flex-direction: column; align-items: stretch; }
+      .guest-header .logo-text { font-size: 22px; }
+      .neu-btn { padding: 10px 20px; font-size: 13px; }
+    }
+    @media (max-width: 400px) {
+      .product-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .product-info { padding: 12px 14px; }
+      .product-name { font-size: 14px; }
+      .discount-price { font-size: 18px; }
+      .add-to-cart-btn { padding: 10px 12px; font-size: 13px; }
     }
   </style>
 </head>
@@ -271,7 +281,7 @@
   <div id="treeTab" class="tab-content">
     <div style="margin-bottom:16px;"><button class="neu-btn neu-btn-primary" id="addDownlineBtn">➕ Add Member (Left/Right)</button></div>
     <div class="mlm-tree-wrapper" id="mlmTreeContainer"></div>
-    <div class="info-note">💡 Each purchase gives ₹50 to grandparent (₹25 from left + ₹25 from right) when both children have active grandchildren at the same level. Withdrawal requires both legs (Left &amp; Right child) and minimum ₹100 earnings.</div>
+    <div class="info-note">💡 Each purchase gives ₹50 to grandparent (₹25 from left + ₹25 from right) when both sides have purchasing children at the same level. Withdrawal requires both legs (Left &amp; Right child) and minimum ₹100 earnings.</div>
   </div>
   <div id="ordersTab" class="tab-content">
     <div class="table-wrap"><table><thead><tr><th>Order ID</th><th>Items</th><th>Total</th><th>Status</th><th>Date &amp; Time</th><th>Delivery Date</th></tr></thead><tbody id="myOrdersList"></tbody></table></div>
@@ -377,27 +387,44 @@
     });
   }
 
-  // ─── HELPER: Check if a member has a child with purchase ──
-  function checkIfChildHasPurchasingChild(memberId) {
-    const member = mlmTree[memberId];
-    if (!member) return false;
-    
-    const leftChild = member.leftChild ? mlmTree[member.leftChild] : null;
-    const rightChild = member.rightChild ? mlmTree[member.rightChild] : null;
-    
-    if (leftChild && leftChild.orderCount > 0) return true;
-    if (rightChild && rightChild.orderCount > 0) return true;
-    
-    return false;
+  // ─── HELPER: Get level of a node from root ────────────────
+  function getNodeLevel(nodeId) {
+    let level = 0;
+    let current = nodeId;
+    while (current && current !== 'admin') {
+      const node = mlmTree[current];
+      if (!node || !node.parentId) break;
+      current = node.parentId;
+      level++;
+    }
+    return level;
   }
 
-  // ─── DISTRIBUTE COMMISSION (NEW LOGIC) ─────────────────────
+  // ─── HELPER: Check if member has purchasing child at specific level ──
+  function hasPurchasingChildAtLevel(nodeId, targetLevel, currentLevel) {
+    if (!nodeId) return false;
+    const node = mlmTree[nodeId];
+    if (!node) return false;
+    
+    // If we reached the target level, check if this node has purchased
+    if (currentLevel === targetLevel) {
+      return node.orderCount > 0;
+    }
+    
+    // Check children at next level
+    const left = hasPurchasingChildAtLevel(node.leftChild, targetLevel, currentLevel + 1);
+    const right = hasPurchasingChildAtLevel(node.rightChild, targetLevel, currentLevel + 1);
+    
+    return left || right;
+  }
+
+  // ─── DISTRIBUTE COMMISSION (UPDATED LOGIC) ──────────────────
   async function distributeCommission(memberId) {
     if (!memberId || memberId === 'admin') return;
     const member = mlmTree[memberId];
     if (!member) return;
     
-    // Get parent (immediate upline)
+    // Get parent (1 level up)
     const parentId = member.parentId;
     if (!parentId) return;
     const parent = mlmTree[parentId];
@@ -409,27 +436,25 @@
     const grandparent = mlmTree[grandparentId];
     if (!grandparent) return;
     
-    // Check if the buyer is a direct child of the grandparent
-    // i.e., the buyer must be either grandparent's left or right child
-    if (member.id !== grandparent.leftChild && member.id !== grandparent.rightChild) {
-      // Buyer is a grandchild or deeper → no commission for grandparent
-      return;
-    }
-    
-    // Now check if grandparent's BOTH children have children who purchased
+    // Check if grandparent has BOTH children
     const leftChild = grandparent.leftChild ? mlmTree[grandparent.leftChild] : null;
     const rightChild = grandparent.rightChild ? mlmTree[grandparent.rightChild] : null;
     
-    if (!leftChild || !rightChild) return; // Grandparent doesn't have both children
+    if (!leftChild || !rightChild) return;
     
-    // Check if left child has at least one child who purchased
-    const leftChildHasActiveChild = checkIfChildHasPurchasingChild(leftChild.id);
-    // Check if right child has at least one child who purchased
-    const rightChildHasActiveChild = checkIfChildHasPurchasingChild(rightChild.id);
+    // Get the level of the buyer (how deep they are from the grandparent)
+    const buyerLevel = getNodeLevel(member.id);
+    const grandparentLevel = getNodeLevel(grandparent.id);
+    const levelDiff = buyerLevel - grandparentLevel;
     
-    if (leftChildHasActiveChild && rightChildHasActiveChild) {
-      // Both sides have purchasing grandchildren at the same level → grandparent earns ₹50
+    // Check if left child has a purchasing child at the SAME level as the buyer
+    const leftHasActive = hasPurchasingChildAtLevel(leftChild.id, levelDiff, 1);
+    const rightHasActive = hasPurchasingChildAtLevel(rightChild.id, levelDiff, 1);
+    
+    if (leftHasActive && rightHasActive) {
       grandparent.earnings = (grandparent.earnings || 0) + 50;
+      // Save immediately to ensure earnings persist
+      await saveAll();
     }
   }
 
