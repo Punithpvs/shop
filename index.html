@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes">
-  <title>ShopNet — MLM Binary | COD Only | Customer Portal</title>
+  <title>LaasyaKart — MLM Binary | COD Only | Customer Portal</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
@@ -174,7 +174,7 @@
 <!-- ─── GUEST VIEW ─── -->
 <div id="guestView">
   <div class="guest-header">
-    <div class="logo-text">🛍️ ShopNet | COD &amp; MLM</div>
+    <div class="logo-text">🛍️ LaasyaKart | COD &amp; MLM</div>
     <button class="neu-btn neu-btn-primary" id="showMemberLoginBtn">🔐 Member Login / Register</button>
   </div>
   <div class="neu-card" style="margin-bottom:24px;">
@@ -241,7 +241,7 @@
 
   <!-- Navbar with Hamburger -->
   <div class="navbar">
-    <div class="logo-text">🛍️ ShopNet</div>
+    <div class="logo-text">🛍️ LaasyaKart</div>
     <div class="hamburger" id="hamburgerBtn">
       <span></span><span></span><span></span>
     </div>
@@ -251,7 +251,7 @@
   <div class="menu-overlay" id="menuOverlay"></div>
   <div class="slide-menu" id="slideMenu">
     <div class="menu-header">
-      <div class="logo-text">🛍️ ShopNet</div>
+      <div class="logo-text">🛍️ LaasyaKart</div>
       <div class="menu-close" id="menuCloseBtn">✕</div>
     </div>
     <div class="menu-item" data-tab="shop"><span class="icon">🛒</span> Shop</div>
@@ -281,7 +281,10 @@
   <div id="treeTab" class="tab-content">
     <div style="margin-bottom:16px;"><button class="neu-btn neu-btn-primary" id="addDownlineBtn">➕ Add Member (Left/Right)</button></div>
     <div class="mlm-tree-wrapper" id="mlmTreeContainer"></div>
-    <div class="info-note">💡 Each purchase gives ₹50 to grandparent (₹25 from left + ₹25 from right) when both sides have purchasing children at the same level. Withdrawal requires both legs (Left &amp; Right child) and minimum ₹100 earnings.</div>
+    <div class="info-note">💡 <strong>Commission Rules:</strong><br>
+    • <strong>Parent gets ₹50</strong> when both children have purchased.<br>
+    • <strong>Grandparent gets ₹50</strong> when both sides have purchasing grandchildren at the <strong>same level with matching sides</strong> (Left-Left or Right-Right).<br>
+    • Withdrawal requires both legs (Left &amp; Right child) and minimum ₹100 earnings.</div>
   </div>
   <div id="ordersTab" class="tab-content">
     <div class="table-wrap"><table><thead><tr><th>Order ID</th><th>Items</th><th>Total</th><th>Status</th><th>Date &amp; Time</th><th>Delivery Date</th></tr></thead><tbody id="myOrdersList"></tbody></table></div>
@@ -400,37 +403,61 @@
     return level;
   }
 
-  // ─── HELPER: Check if member has purchasing child at specific level ──
-  function hasPurchasingChildAtLevel(nodeId, targetLevel, currentLevel) {
+  // ─── HELPER: Check if member has purchasing child at specific level with side matching ──
+  function hasPurchasingChildAtLevelWithSide(nodeId, targetLevel, currentLevel, requiredSide) {
     if (!nodeId) return false;
     const node = mlmTree[nodeId];
     if (!node) return false;
     
-    // If we reached the target level, check if this node has purchased
     if (currentLevel === targetLevel) {
       return node.orderCount > 0;
     }
     
-    // Check children at next level
-    const left = hasPurchasingChildAtLevel(node.leftChild, targetLevel, currentLevel + 1);
-    const right = hasPurchasingChildAtLevel(node.rightChild, targetLevel, currentLevel + 1);
+    const left = hasPurchasingChildAtLevelWithSide(node.leftChild, targetLevel, currentLevel + 1, requiredSide);
+    const right = hasPurchasingChildAtLevelWithSide(node.rightChild, targetLevel, currentLevel + 1, requiredSide);
     
     return left || right;
   }
 
-  // ─── DISTRIBUTE COMMISSION (FIXED) ──────────────────────────
+  // ─── HELPER: Get child side (left or right) ──────────────
+  function getChildSide(parentId, childId) {
+    if (!parentId || !childId) return null;
+    const parent = mlmTree[parentId];
+    if (!parent) return null;
+    if (parent.leftChild === childId) return 'left';
+    if (parent.rightChild === childId) return 'right';
+    return null;
+  }
+
+  // ─── DISTRIBUTE COMMISSION (BOTH PARENT & GRANDPARENT) ──────
   async function distributeCommission(memberId) {
     if (!memberId || memberId === 'admin') return;
     const member = mlmTree[memberId];
     if (!member) return;
     
-    // Get parent (1 level up)
+    let commissionEarned = false;
+    
+    // ─── 1. PARENT COMMISSION ──────────────────────────────
     const parentId = member.parentId;
+    if (parentId && parentId !== 'admin') {
+      const parent = mlmTree[parentId];
+      if (parent) {
+        const leftChild = parent.leftChild ? mlmTree[parent.leftChild] : null;
+        const rightChild = parent.rightChild ? mlmTree[parent.rightChild] : null;
+        
+        if (leftChild && rightChild && leftChild.orderCount > 0 && rightChild.orderCount > 0) {
+          parent.earnings = (parent.earnings || 0) + 50;
+          commissionEarned = true;
+          showToast(`✅ ${parent.name} earned ₹50 (both children active)!`);
+        }
+      }
+    }
+    
+    // ─── 2. GRANDPARENT COMMISSION ─────────────────────────
     if (!parentId) return;
     const parent = mlmTree[parentId];
     if (!parent) return;
     
-    // Get grandparent (2 levels up)
     const grandparentId = parent.parentId;
     if (!grandparentId || grandparentId === 'admin') return;
     const grandparent = mlmTree[grandparentId];
@@ -440,23 +467,43 @@
     const leftChild = grandparent.leftChild ? mlmTree[grandparent.leftChild] : null;
     const rightChild = grandparent.rightChild ? mlmTree[grandparent.rightChild] : null;
     
-    if (!leftChild || !rightChild) return;
+    if (!leftChild || !rightChild) {
+      if (commissionEarned) await saveAll();
+      return;
+    }
     
-    // Get the level of the buyer (how deep they are from the grandparent)
+    // Get the level of the buyer
     const buyerLevel = getNodeLevel(member.id);
     const grandparentLevel = getNodeLevel(grandparent.id);
     const levelDiff = buyerLevel - grandparentLevel;
     
-    // Check if left child has a purchasing child at the SAME level as the buyer
-    const leftHasActive = hasPurchasingChildAtLevel(leftChild.id, levelDiff, 1);
-    const rightHasActive = hasPurchasingChildAtLevel(rightChild.id, levelDiff, 1);
+    // Get the side of the buyer relative to their parent
+    const buyerSide = getChildSide(parentId, member.id);
+    if (!buyerSide) {
+      if (commissionEarned) await saveAll();
+      return;
+    }
+    
+    // Determine which side we need to check for matching
+    // If buyer is on left side of parent, we need the opposite side (right) to match
+    // For grandparent to earn, one child's grandchild should be on left and the other on right
+    const leftChildSide = getChildSide(grandparentId, leftChild.id);
+    const rightChildSide = getChildSide(grandparentId, rightChild.id);
+    
+    // Check if left child has a purchasing child at the same level
+    // For left child, we need a grandchild on the LEFT side (same side as left child)
+    const leftHasActive = hasPurchasingChildAtLevelWithSide(leftChild.id, levelDiff, 1, 'left');
+    // For right child, we need a grandchild on the RIGHT side (same side as right child)
+    const rightHasActive = hasPurchasingChildAtLevelWithSide(rightChild.id, levelDiff, 1, 'right');
     
     if (leftHasActive && rightHasActive) {
-      // Both sides have purchasing children at the same level → grandparent earns ₹50
       grandparent.earnings = (grandparent.earnings || 0) + 50;
-      // Save immediately to ensure earnings persist
+      commissionEarned = true;
+      showToast(`✅ ${grandparent.name} earned ₹50 (both sides active at same level)!`);
+    }
+    
+    if (commissionEarned) {
       await saveAll();
-      showToast(`✅ ${grandparent.name} earned ₹50 commission!`);
     }
   }
 
