@@ -418,7 +418,7 @@
     return left || right;
   }
 
-  // ─── DISTRIBUTE COMMISSION (UPDATED LOGIC) ──────────────────
+  // ─── DISTRIBUTE COMMISSION (FIXED) ──────────────────────────
   async function distributeCommission(memberId) {
     if (!memberId || memberId === 'admin') return;
     const member = mlmTree[memberId];
@@ -452,9 +452,11 @@
     const rightHasActive = hasPurchasingChildAtLevel(rightChild.id, levelDiff, 1);
     
     if (leftHasActive && rightHasActive) {
+      // Both sides have purchasing children at the same level → grandparent earns ₹50
       grandparent.earnings = (grandparent.earnings || 0) + 50;
       // Save immediately to ensure earnings persist
       await saveAll();
+      showToast(`✅ ${grandparent.name} earned ₹50 commission!`);
     }
   }
 
